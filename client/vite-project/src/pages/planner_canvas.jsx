@@ -27,9 +27,9 @@ import {
 // ==========================================
 // CONSTANTS & CONFIGURATIONS
 // ==========================================
-const GRID_SIZE = 40; // Size of calculation grid cells
-const CANVAS_WIDTH = 800;
-const CANVAS_HEIGHT = 550;
+const GRID_SIZE = 40;
+const DEFAULT_BLOCKS_X = 20;
+const DEFAULT_BLOCKS_Y = 14;
 
 const DEVICE_TYPES = {
   WIFI_AP: { type: 'WiFi AP', icon: Wifi, color: '#06b6d4', defaultRange: 120, freq: '2.4 GHz', chan: 6, power: 20 },
@@ -53,6 +53,11 @@ export default function AirGridPlannerCanvas() {
   const [backendAnalysis, setBackendAnalysis] = useState(null);
   const [isAnalyzing, setIsAnalyzing] = useState(false);
   const [apiError, setApiError] = useState("");
+  const [isCanvasExpanded, setIsCanvasExpanded] = useState(false);
+  const [areaBlocksX, setAreaBlocksX] = useState(DEFAULT_BLOCKS_X);
+  const [areaBlocksY, setAreaBlocksY] = useState(DEFAULT_BLOCKS_Y);
+  const CANVAS_WIDTH = areaBlocksX * GRID_SIZE;
+  const CANVAS_HEIGHT = areaBlocksY * GRID_SIZE;
   
   // Visualization Toggles
   const [visuals, setVisuals] = useState({
@@ -138,6 +143,8 @@ const handleSaveProject = async () => {
 
     await saveProject({
       projectName: "AirGrid Demo Layout",
+      areaBlocksX,
+      areaBlocksY,
       canvasWidth: CANVAS_WIDTH,
       canvasHeight: CANVAS_HEIGHT,
       gridSize: GRID_SIZE,
@@ -377,7 +384,7 @@ const displayHealth =
             <Activity className="w-4 h-4 text-cyan-400" />
           </div>
           <div>
-            <h1 className="text-sm font-bold text-slate-100 uppercase tracking-widest font-mono">AirGrid // NOC Planner</h1>
+            <h1 className="text-sm font-bold text-slate-100 uppercase tracking-widest font-mono">AirGrid</h1>
             <p className="text-[10px] text-slate-500 font-mono -mt-0.5">TACTICAL SIGNAL GEOMETRY ENGINE v2.6</p>
           </div>
         </div>
@@ -394,14 +401,56 @@ const displayHealth =
       <div className="flex flex-1 overflow-hidden w-full">
         
         {/* 2. LEFT SIDEBAR */}
-        <aside className="w-64 bg-[#070b12] border-r border-slate-800 p-4 flex flex-col justify-between overflow-y-auto">
+        <aside className="w-64 bg-[#070b12] border-r border-slate-800 p-4 flex flex-col justify-between overflow-y-auto airgrid-scrollbar">
           <div className="space-y-6">
             {apiError && (
              <div className="p-2 text-[11px] font-mono text-red-400 bg-red-950/30 border border-red-900 rounded">
             {apiError}
            </div>
             )}
-            
+            <div className="pt-2 border-b border-slate-800/60 pb-4">
+  <h3 className="text-xs font-semibold text-slate-400 uppercase tracking-wider font-mono mb-3">
+    Area Definition
+  </h3>
+
+  <div className="grid grid-cols-2 gap-2">
+    <div>
+      <label className="text-[10px] text-slate-500 font-mono">X Blocks</label>
+      <input
+        type="number"
+        min="5"
+        max="40"
+        value={areaBlocksX}
+        onChange={(e) => {
+        const value = Math.max(5, Number(e.target.value) || 5);
+        setAreaBlocksX(value);
+        setBackendAnalysis(null);
+        }}
+        className="w-full mt-1 bg-slate-950 border border-slate-800 rounded p-2 text-xs font-mono text-slate-300"
+      />
+    </div>
+
+    <div>
+      <label className="text-[10px] text-slate-500 font-mono">Y Blocks</label>
+      <input
+        type="number"
+        min="5"
+        max="30"
+        value={areaBlocksY}
+        onChange={(e) => {
+        const value = Math.max(5, Number(e.target.value) || 5);
+        setAreaBlocksY(value);
+        setBackendAnalysis(null);
+         }}
+        className="w-full mt-1 bg-slate-950 border border-slate-800 rounded p-2 text-xs font-mono text-slate-300"
+      />
+    </div>
+  </div>
+
+  <p className="text-[10px] text-slate-500 font-mono mt-2">
+    Area: {areaBlocksX} × {areaBlocksY} blocks = {CANVAS_WIDTH}px × {CANVAS_HEIGHT}px
+  </p>
+</div>
             {/* Palette */}
             <div>
               <h3 className="text-xs font-semibold text-slate-400 uppercase tracking-wider font-mono mb-3 flex items-center gap-2">
@@ -482,6 +531,13 @@ const displayHealth =
             </button>
 
             <button 
+             onClick={() => setIsCanvasExpanded(true)}
+             className="w-full flex items-center justify-center space-x-2 py-2 px-3 bg-slate-900 hover:bg-slate-800 border border-slate-800 text-purple-400 rounded text-xs font-semibold font-mono transition-colors"
+            >
+               <Maximize2 className="w-3.5 h-3.5" />
+               <span>ENLARGE CANVAS</span>
+            </button>
+            <button 
               onClick={handleSaveProject}
                className="w-full flex items-center justify-center space-x-2 py-2 px-3 bg-slate-900 hover:bg-slate-800 border border-slate-800 text-emerald-400 rounded text-xs font-semibold font-mono transition-colors"
             >
@@ -500,7 +556,7 @@ const displayHealth =
         </aside>
 
         {/* 3. MAIN CANVAS CONTAINER */}
-        <main className="flex-1 bg-[#05080f] p-6 flex items-center justify-center relative overflow-hidden">
+        <main className="flex-1 bg-[#05080f] p-6 relative overflow-auto airgrid-scrollbar">
           
           {/* Tactical Target Scope Ring Background Overlays */}
           <div className="absolute inset-0 pointer-events-none opacity-5 flex items-center justify-center">
@@ -510,7 +566,7 @@ const displayHealth =
 
           {/* Konva Stage Wrapper Frame */}
           <div 
-            className="relative border border-slate-800/80 rounded bg-[#020408] shadow-2xl overflow-hidden"
+           className="relative border border-slate-800/80 rounded bg-[#020408] shadow-2xl overflow-hidden mx-auto"
             onDragOver={(e) => e.preventDefault()}
             onDrop={handleDropOnCanvas}
             style={{ width: CANVAS_WIDTH, height: CANVAS_HEIGHT }}
@@ -688,7 +744,7 @@ const displayHealth =
                       Dismiss
                     </button>
                   </div>
-                  <div className="overflow-y-auto space-y-1.5 pr-1 flex-1">
+                  <div className="overflow-y-auto space-y-1.5 pr-1 flex-1 airgrid-scrollbar">
                     {recommendations.map((rec, index) => {
                       const iconMap = {
   channel: AlertTriangle,
@@ -723,7 +779,7 @@ const recColor = rec.color || colorMap[rec.type] || "text-slate-400 bg-slate-900
         </main>
 
         {/* 4. RIGHT DETAILS PANEL */}
-        <aside className="w-80 bg-[#070b12] border-l border-slate-800 p-4 flex flex-col overflow-y-auto">
+        <aside className="w-80 bg-[#070b12] border-l border-slate-800 p-4 flex flex-col overflow-y-auto airgrid-scrollbar">
           <AnimatePresence mode="wait">
             {selectedNode ? (
               // Active Node Profile Inspector Layout
@@ -909,6 +965,189 @@ const recColor = rec.color || colorMap[rec.type] || "text-slate-400 bg-slate-900
           </div>
         </div>
       </footer>
+
+      <AnimatePresence>
+  {isCanvasExpanded && (
+    <motion.div
+      initial={{ opacity: 0 }}
+      animate={{ opacity: 1 }}
+      exit={{ opacity: 0 }}
+      className="fixed inset-0 z-50 bg-[#020408]"
+    >
+      <div className="h-screen w-screen bg-[#05080f] flex flex-col overflow-hidden">
+        <div className="h-12 px-4 flex items-center justify-between border-b border-slate-800 bg-[#090d16]">
+          <div className="font-mono">
+            <h2 className="text-sm font-bold text-slate-100 tracking-widest">
+              AIRGRID EXPANDED CANVAS
+            </h2>
+            <p className="text-[10px] text-slate-500">
+              {areaBlocksX} × {areaBlocksY} blocks • {CANVAS_WIDTH}px × {CANVAS_HEIGHT}px
+            </p>
+          </div>
+
+          <button
+            onClick={() => setIsCanvasExpanded(false)}
+            className="px-3 py-1 text-xs font-mono text-red-400 border border-red-900/60 bg-red-950/20 hover:bg-red-900/30 rounded"
+          >
+            CLOSE
+          </button>
+        </div>
+
+        <div
+          className="flex-1 overflow-auto airgrid-scrollbar p-6"
+          onDragOver={(e) => e.preventDefault()}
+          onDrop={handleDropOnCanvas}
+        >
+          <div
+            className="relative border border-slate-800/80 rounded bg-[#020408] shadow-2xl overflow-hidden mx-auto"
+            style={{ width: CANVAS_WIDTH, height: CANVAS_HEIGHT }}
+          >
+            <Stage
+              width={CANVAS_WIDTH}
+              height={CANVAS_HEIGHT}
+              onClick={(e) => {
+                if (e.target === e.target.getStage()) {
+                  setSelectedNodeId(null);
+                }
+              }}
+            >
+              <Layer>
+                {Array.from({ length: Math.ceil(CANVAS_WIDTH / 20) }).map((_, i) => (
+                  <Line key={`expanded-v-${i}`} points={[i * 20, 0, i * 20, CANVAS_HEIGHT]} stroke="#1e293b" strokeWidth={i % 2 === 0 ? 0.4 : 0.1} listening={false} />
+                ))}
+
+                {Array.from({ length: Math.ceil(CANVAS_HEIGHT / 20) }).map((_, i) => (
+                  <Line key={`expanded-h-${i}`} points={[0, i * 20, CANVAS_WIDTH, i * 20]} stroke="#1e293b" strokeWidth={i % 2 === 0 ? 0.4 : 0.1} listening={false} />
+                ))}
+
+                {(visuals.heatmap || visuals.deadZones) && gridAnalysis.cells.map((cell, idx) => {
+                  let fillColor = "transparent";
+                  let opacity = 0;
+
+                  if (visuals.deadZones && !cell.isCovered) {
+                    fillColor = "#ef4444";
+                    opacity = 0.08;
+                  } else if (visuals.heatmap && cell.isCovered) {
+                    opacity = 0.22;
+                    if (cell.interferenceTint > 0) fillColor = "#a855f7";
+                    else if (cell.signalStrength > 14) fillColor = "#06b6d4";
+                    else if (cell.signalStrength > 7) fillColor = "#f59e0b";
+                    else fillColor = "#3b82f6";
+                  }
+
+                  if (fillColor === "transparent") return null;
+
+                  return (
+                    <Rect
+                      key={`expanded-grid-cell-${idx}`}
+                      x={cell.x}
+                      y={cell.y}
+                      width={GRID_SIZE}
+                      height={GRID_SIZE}
+                      fill={fillColor}
+                      opacity={opacity}
+                      listening={false}
+                    />
+                  );
+                })}
+
+                {visuals.interference && interferenceVectors.map((v) => {
+                  const color = v.severity === "critical" ? "#ef4444" : v.severity === "medium" ? "#f59e0b" : "#a855f7";
+                  const dashPattern = v.severity === "critical" ? [6, 4] : [10, 5];
+
+                  return (
+                    <Group key={`expanded-${v.id}`}>
+                      <Line
+                        points={[v.from.x, v.from.y, v.to.x, v.to.y]}
+                        stroke={color}
+                        strokeWidth={v.severity === "critical" ? 2 : 1.2}
+                        dash={dashPattern}
+                        opacity={0.8}
+                      />
+                      <Circle
+                        x={(v.from.x + v.to.x) / 2}
+                        y={(v.from.y + v.to.y) / 2}
+                        radius={7}
+                        fill="#0f172a"
+                        stroke={color}
+                        strokeWidth={1}
+                      />
+                    </Group>
+                  );
+                })}
+
+                {nodes.map((node) => {
+                  const isSelected = node.id === selectedNodeId;
+                  const devMeta = Object.values(DEVICE_TYPES).find((d) => d.type === node.type) || DEVICE_TYPES.WIFI_AP;
+
+                  return (
+                    <Group
+                      key={`expanded-${node.id}`}
+                      x={node.x}
+                      y={node.y}
+                      draggable
+                      onDragMove={(e) => handleNodeDragMove(node.id, e)}
+                      onClick={(e) => {
+                        e.cancelBubble = true;
+                        setSelectedNodeId(node.id);
+                      }}
+                    >
+                      {visuals.coverage && (
+                        <Circle
+                          radius={node.range}
+                          fill={devMeta.color}
+                          opacity={isSelected ? 0.08 : 0.03}
+                          stroke={devMeta.color}
+                          strokeWidth={isSelected ? 1.5 : 0.8}
+                          dash={isSelected ? [5, 3] : null}
+                        />
+                      )}
+
+                      <Circle
+                        radius={16}
+                        fill="#090d16"
+                        stroke={isSelected ? "#22d3ee" : "#334155"}
+                        strokeWidth={isSelected ? 2.5 : 1}
+                        shadowColor={devMeta.color}
+                        shadowBlur={isSelected ? 12 : 3}
+                        shadowOpacity={0.5}
+                      />
+
+                      <Text
+                        text={node.name}
+                        y={22}
+                        x={-40}
+                        width={80}
+                        align="center"
+                        fill={isSelected ? "#22d3ee" : "#94a3b8"}
+                        fontSize={10}
+                        fontFamily="monospace"
+                        fontStyle="bold"
+                      />
+
+                      <Text
+                        text={`Ch:${node.channel}`}
+                        y={-28}
+                        x={-30}
+                        width={60}
+                        align="center"
+                        fill="#64748b"
+                        fontSize={9}
+                        fontFamily="monospace"
+                      />
+
+                      <Circle radius={4} fill={devMeta.color} />
+                    </Group>
+                  );
+                })}
+              </Layer>
+            </Stage>
+          </div>
+        </div>
+      </div>
+    </motion.div>
+  )}
+</AnimatePresence>
 
     </div>
   );

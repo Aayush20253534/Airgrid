@@ -1,1 +1,27 @@
 @import "tailwindcss";
+
+/* AIRGRID DARK SCROLLBAR */
+
+.airgrid-scrollbar::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+
+.airgrid-scrollbar::-webkit-scrollbar-track {
+  background: #020617;
+  border-radius: 999px;
+}
+
+.airgrid-scrollbar::-webkit-scrollbar-thumb {
+  background: #1e293b;
+  border-radius: 999px;
+  border: 2px solid #020617;
+}
+
+.airgrid-scrollbar::-webkit-scrollbar-thumb:hover {
+  background: #334155;
+}
+
+.airgrid-scrollbar::-webkit-scrollbar-corner {
+  background: #020617;
+}
