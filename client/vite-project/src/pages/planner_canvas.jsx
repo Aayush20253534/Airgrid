@@ -22,6 +22,8 @@ import {
   analyzePlannerLayout,
   optimizePlannerLayout,
   saveProject,
+  getProjects,
+  getProjectByFile,
 } from "../api/plannerApi";
 
 // ==========================================
@@ -53,6 +55,9 @@ export default function AirGridPlannerCanvas() {
   const [backendAnalysis, setBackendAnalysis] = useState(null);
   const [isAnalyzing, setIsAnalyzing] = useState(false);
   const [apiError, setApiError] = useState("");
+  const [projectName, setProjectName] = useState("");
+  const [savedProjects, setSavedProjects] = useState([]);
+  const [showProjectPicker, setShowProjectPicker] = useState(false);
   const [isCanvasExpanded, setIsCanvasExpanded] = useState(false);
   const [areaBlocksX, setAreaBlocksX] = useState(DEFAULT_BLOCKS_X);
   const [areaBlocksY, setAreaBlocksY] = useState(DEFAULT_BLOCKS_Y);
@@ -141,8 +146,15 @@ const handleSaveProject = async () => {
   try {
     setApiError("");
 
+    const name = prompt("Enter project name:");
+
+    if (!name || !name.trim()) {
+      alert("Project name is required");
+      return;
+    }
+
     await saveProject({
-      projectName: "AirGrid Demo Layout",
+      projectName: name.trim(),
       areaBlocksX,
       areaBlocksY,
       canvasWidth: CANVAS_WIDTH,
@@ -154,10 +166,51 @@ const handleSaveProject = async () => {
     });
 
     alert("Project saved successfully");
+    handleLoadProjects();
   } catch (error) {
     setApiError(error.message);
   }
 };
+
+const handleLoadProjects = async () => {
+  try {
+    setApiError("");
+
+    const data = await getProjects();
+
+    setSavedProjects(data);
+    setShowProjectPicker(true);
+
+    if (data.length === 0) {
+      alert("No saved project files found");
+    }
+  } catch (error) {
+    setApiError(error.message);
+  }
+};
+
+const handleOpenProject = async (projectFile) => {
+  try {
+    setApiError("");
+
+    const project = await getProjectByFile(projectFile.fileName);
+
+    setAreaBlocksX(project.areaBlocksX || DEFAULT_BLOCKS_X);
+    setAreaBlocksY(project.areaBlocksY || DEFAULT_BLOCKS_Y);
+    setNodes(project.nodes || []);
+    setVisuals(project.visualSettings || visuals);
+    setBackendAnalysis(project.lastAnalysis || null);
+    setSelectedNodeId(null);
+    setRecommendations([]);
+    setShowRecommendations(false);
+    setShowProjectPicker(false);
+
+    alert(`Loaded project: ${project.projectName}`);
+  } catch (error) {
+    setApiError(error.message);
+  }
+};
+
   const handleNodeDragMove = (id, e) => {
     const stage = e.target.getStage();
     const pointerPos = stage.getPointerPosition();
@@ -543,6 +596,13 @@ const displayHealth =
             >
                <CheckCircle className="w-3.5 h-3.5" />
               <span>SAVE PROJECT</span>
+            </button>
+            <button 
+              onClick={handleLoadProjects}
+              className="w-full flex items-center justify-center space-x-2 py-2 px-3 bg-slate-900 hover:bg-slate-800 border border-slate-800 text-blue-400 rounded text-xs font-semibold font-mono transition-colors"
+            >
+             <Layers className="w-3.5 h-3.5" />
+              <span>LOAD PROJECTS</span>
             </button>
 
             <button 
@@ -1148,7 +1208,74 @@ const recColor = rec.color || colorMap[rec.type] || "text-slate-400 bg-slate-900
     </motion.div>
   )}
 </AnimatePresence>
+<AnimatePresence>
+  {showProjectPicker && (
+    <motion.div
+      initial={{ opacity: 0 }}
+      animate={{ opacity: 1 }}
+      exit={{ opacity: 0 }}
+      className="fixed inset-0 z-50 bg-black/80 backdrop-blur-sm flex items-center justify-center p-6"
+    >
+      <motion.div
+        initial={{ scale: 0.96, y: 10 }}
+        animate={{ scale: 1, y: 0 }}
+        exit={{ scale: 0.96, y: 10 }}
+        className="w-full max-w-xl max-h-[70vh] bg-[#070b12] border border-slate-800 rounded-xl shadow-2xl overflow-hidden font-mono"
+      >
+        <div className="px-4 py-3 border-b border-slate-800 bg-[#090d16] flex items-center justify-between">
+          <div>
+            <h2 className="text-sm text-slate-100 font-bold tracking-widest">
+              LOAD PROJECT FILE
+            </h2>
+            <p className="text-[10px] text-slate-500">
+              Select a saved AirGrid JSON layout
+            </p>
+          </div>
 
+          <button
+            onClick={() => setShowProjectPicker(false)}
+            className="px-2 py-1 text-[10px] text-red-400 border border-red-900 rounded bg-red-950/20"
+          >
+            CLOSE
+          </button>
+        </div>
+
+        <div className="p-3 max-h-[55vh] overflow-y-auto airgrid-scrollbar space-y-2">
+          {savedProjects.length === 0 ? (
+            <div className="text-xs text-slate-500 p-4 text-center">
+              No saved project files found.
+            </div>
+          ) : (
+            savedProjects.map((project) => (
+              <button
+                key={project.fileName}
+                onClick={() => handleOpenProject(project)}
+                className="w-full text-left p-3 rounded-lg bg-slate-950 hover:bg-slate-900 border border-slate-800 hover:border-cyan-800 transition-colors"
+              >
+                <div className="flex items-center justify-between">
+                  <span className="text-cyan-400 text-xs font-bold truncate">
+                    {project.projectName}
+                  </span>
+                  <span className="text-[10px] text-slate-500">
+                    {project.nodesCount} devices
+                  </span>
+                </div>
+
+                <div className="text-[10px] text-slate-500 mt-1">
+                  File: {project.fileName}
+                </div>
+
+                <div className="text-[10px] text-slate-600 mt-1">
+                  Area: {project.areaBlocksX} × {project.areaBlocksY} blocks
+                </div>
+              </button>
+            ))
+          )}
+        </div>
+      </motion.div>
+    </motion.div>
+  )}
+</AnimatePresence>
     </div>
   );
 }

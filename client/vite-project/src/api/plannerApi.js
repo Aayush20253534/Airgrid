@@ -32,6 +32,31 @@ export const optimizePlannerLayout = async (payload) => {
   return response.json();
 };
 
+export const getProjects = async () => {
+  const response = await fetch(`${API_BASE_URL}/projects?t=${Date.now()}`, {
+    cache: "no-store",
+  });
+
+  if (!response.ok) {
+    throw new Error("Failed to load projects");
+  }
+
+  return response.json();
+};
+
+export const getProjectByFile = async (fileName) => {
+  const response = await fetch(
+    `${API_BASE_URL}/projects/${fileName}?t=${Date.now()}`,
+    { cache: "no-store" }
+  );
+
+  if (!response.ok) {
+    throw new Error("Failed to load selected project");
+  }
+
+  return response.json();
+};
+
 export const saveProject = async (payload) => {
   const response = await fetch(`${API_BASE_URL}/projects`, {
     method: "POST",
