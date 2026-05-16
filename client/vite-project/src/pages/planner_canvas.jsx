@@ -396,6 +396,11 @@ const displayHealth =
         {/* 2. LEFT SIDEBAR */}
         <aside className="w-64 bg-[#070b12] border-r border-slate-800 p-4 flex flex-col justify-between overflow-y-auto">
           <div className="space-y-6">
+            {apiError && (
+             <div className="p-2 text-[11px] font-mono text-red-400 bg-red-950/30 border border-red-900 rounded">
+            {apiError}
+           </div>
+            )}
             
             {/* Palette */}
             <div>
@@ -460,14 +465,16 @@ const displayHealth =
           <div className="pt-4 border-t border-slate-800 space-y-2">
             <button 
               onClick={handleOptimizeWithBackend}
+              disabled={isAnalyzing}
               className="w-full flex items-center justify-center space-x-2 py-2 px-3 bg-linear-to-r from-cyan-600 to-blue-600 hover:from-cyan-500 hover:to-blue-500 text-white rounded text-xs font-semibold font-mono shadow-md shadow-cyan-950/20 active:scale-[0.98] transition-transform"
             >
               <Zap className="w-3.5 h-3.5" />
-              <span>OPTIMIZE LAYOUT</span>
+              <span>{isAnalyzing ? "OPTIMIZING..." : "OPTIMIZE LAYOUT"}</span>
             </button>
 
             <button 
               onClick={handleAnalyzeWithBackend}
+              disabled={isAnalyzing}
                className="w-full flex items-center justify-center space-x-2 py-2 px-3 bg-slate-900 hover:bg-slate-800 border border-slate-800 text-cyan-400 rounded text-xs font-semibold font-mono transition-colors"
             >
               <Activity className="w-3.5 h-3.5" />
@@ -683,9 +690,26 @@ const displayHealth =
                   </div>
                   <div className="overflow-y-auto space-y-1.5 pr-1 flex-1">
                     {recommendations.map((rec, index) => {
-                      const RecIcon = rec.icon;
+                      const iconMap = {
+  channel: AlertTriangle,
+  position: Sliders,
+  coverage: Zap,
+  perfect: CheckCircle,
+  empty: Info,
+};
+
+const colorMap = {
+  channel: "text-red-400 bg-red-950/40 border-red-800",
+  position: "text-amber-400 bg-amber-950/40 border-amber-800",
+  coverage: "text-cyan-400 bg-cyan-950/40 border-cyan-800",
+  perfect: "text-emerald-400 bg-emerald-950/40 border-emerald-800",
+  empty: "text-slate-400 bg-slate-900 border-slate-800",
+};
+
+const RecIcon = rec.icon || iconMap[rec.type] || Info;
+const recColor = rec.color || colorMap[rec.type] || "text-slate-400 bg-slate-900 border-slate-800";
                       return (
-                        <div key={index} className={`flex items-start space-x-2.5 p-2 rounded text-[11px] border ${rec.color}`}>
+                        <div key={index} className={`flex items-start space-x-2.5 p-2 rounded text-[11px] border ${recColor}`}>
                           <RecIcon className="w-3.5 h-3.5 shrink-0 mt-0.5" />
                           <p className="leading-normal">{rec.msg}</p>
                         </div>
