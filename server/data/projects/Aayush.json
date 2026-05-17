@@ -1,0 +1,86 @@
+{
+  "id": "1779011537070",
+  "fileName": "Aayush.json",
+  "projectName": "Aayush",
+  "areaBlocksX": 20,
+  "areaBlocksY": 14,
+  "canvasWidth": 800,
+  "canvasHeight": 560,
+  "gridSize": 40,
+  "nodes": [
+    {
+      "id": "node-1779011366126",
+      "type": "WiFi AP",
+      "x": 212,
+      "y": 119,
+      "range": 120,
+      "frequency": "2.4 GHz",
+      "channel": 6,
+      "power": 20,
+      "name": "WiFiAP-1"
+    },
+    {
+      "id": "node-1779011370966",
+      "type": "IoT Node",
+      "x": 387,
+      "y": 223,
+      "range": 80,
+      "frequency": "915 MHz",
+      "channel": 1,
+      "power": 14,
+      "name": "IoTNode-2"
+    },
+    {
+      "id": "node-1779011374349",
+      "type": "IoT Node",
+      "x": 235,
+      "y": 190,
+      "range": 80,
+      "frequency": "915 MHz",
+      "channel": 1,
+      "power": 14,
+      "name": "IoTNode-3"
+    },
+    {
+      "id": "node-1779011461177",
+      "type": "BLE Beacon",
+      "x": 136,
+      "y": 269.6666679382324,
+      "range": 50,
+      "frequency": "2.4 GHz",
+      "channel": 37,
+      "power": 4,
+      "name": "BLEBeacon-4"
+    },
+    {
+      "id": "node-1779011467278",
+      "type": "Router",
+      "x": 264,
+      "y": 319.6666679382324,
+      "range": 140,
+      "frequency": "5.0 GHz",
+      "channel": 36,
+      "power": 23,
+      "name": "Router-5"
+    }
+  ],
+  "walls": [
+    {
+      "id": "wall-1779011479887",
+      "x": 426,
+      "y": 141,
+      "width": 160,
+      "height": 40,
+      "attenuation": 40,
+      "name": "Wall-1"
+    }
+  ],
+  "visualSettings": {
+    "coverage": true,
+    "heatmap": true,
+    "interference": true,
+    "deadZones": true
+  },
+  "lastAnalysis": null,
+  "createdAt": "2026-05-17T09:52:17.070Z"
+}
