@@ -6,9 +6,9 @@ const { generateSuggestions } = require("../services/optimizerEngine");
 const analyzePlanner = async (req, res) => {
   console.log("ANALYZE API HIT");
   try {
-    const { canvasWidth, canvasHeight, gridSize, nodes } = req.body;
+    const { canvasWidth, canvasHeight, gridSize, nodes = [], walls = [] } = req.body;
 
-    const coverage = calculateCoverage(canvasWidth, canvasHeight, gridSize, nodes);
+    const coverage = calculateCoverage(canvasWidth, canvasHeight, gridSize, nodes, walls);
     const interferenceVectors = detectInterference(nodes);
     const networkHealthScore = calculateHealthScore(
       coverage.deadZonePercent,
@@ -29,9 +29,9 @@ const analyzePlanner = async (req, res) => {
 const optimizePlanner = async (req, res) => {
   console.log("OPTIMIZE API HIT");
   try {
-    const { canvasWidth, canvasHeight, gridSize, nodes } = req.body;
+    const { canvasWidth, canvasHeight, gridSize, nodes, walls } = req.body;
 
-    const coverage = calculateCoverage(canvasWidth, canvasHeight, gridSize, nodes);
+    const coverage = calculateCoverage(canvasWidth, canvasHeight, gridSize, nodes, walls);
     const interferenceVectors = detectInterference(nodes);
     const networkHealthScore = calculateHealthScore(
       coverage.deadZonePercent,

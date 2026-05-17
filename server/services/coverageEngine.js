@@ -1,6 +1,43 @@
 const COVERAGE_DEVICE_TYPES = ["WiFi AP", "Router"];
+const MIN_USABLE_SIGNAL = 6;
 
-const calculateCoverage = (canvasWidth, canvasHeight, gridSize, nodes) => {
+const lineIntersectsRect = (x1, y1, x2, y2, rect) => {
+  const left = rect.x;
+  const right = rect.x + rect.width;
+  const top = rect.y;
+  const bottom = rect.y + rect.height;
+
+  const pointInside =
+    x2 >= left && x2 <= right && y2 >= top && y2 <= bottom;
+
+  if (pointInside) return true;
+
+  const ccw = (ax, ay, bx, by, cx, cy) => {
+    return (cy - ay) * (bx - ax) > (by - ay) * (cx - ax);
+  };
+
+  const intersects = (ax, ay, bx, by, cx, cy, dx, dy) => {
+    return (
+      ccw(ax, ay, cx, cy, dx, dy) !== ccw(bx, by, cx, cy, dx, dy) &&
+      ccw(ax, ay, bx, by, cx, cy) !== ccw(ax, ay, bx, by, dx, dy)
+    );
+  };
+
+  return (
+    intersects(x1, y1, x2, y2, left, top, right, top) ||
+    intersects(x1, y1, x2, y2, right, top, right, bottom) ||
+    intersects(x1, y1, x2, y2, right, bottom, left, bottom) ||
+    intersects(x1, y1, x2, y2, left, bottom, left, top)
+  );
+};
+
+const calculateCoverage = (
+  canvasWidth,
+  canvasHeight,
+  gridSize,
+  nodes = [],
+  walls = []
+) => {
   const cols = Math.ceil(canvasWidth / gridSize);
   const rows = Math.ceil(canvasHeight / gridSize);
 
@@ -26,10 +63,24 @@ const calculateCoverage = (canvasWidth, canvasHeight, gridSize, nodes) => {
         const distance = Math.sqrt(dx * dx + dy * dy);
 
         if (distance <= node.range) {
-          const signal = Math.max(
+          let signal = Math.max(
             0,
             (1 - distance / node.range) * node.power
           );
+
+          walls.forEach((wall) => {
+            const blocked = lineIntersectsRect(
+              node.x,
+              node.y,
+              cellX,
+              cellY,
+              wall
+            );
+
+            if (blocked) {
+              signal *= wall.attenuation || 0.25;
+            }
+          });
 
           highestSignal = Math.max(highestSignal, signal);
           channelsPresent.push(node.channel);
@@ -43,7 +94,8 @@ const calculateCoverage = (canvasWidth, canvasHeight, gridSize, nodes) => {
           ? Math.min((channelsPresent.length - uniqueChannels.size) * 0.4, 1)
           : 0;
 
-      const isCovered = highestSignal > 0;
+      const MIN_USABLE_SIGNAL = 6;
+      const isCovered = highestSignal >= MIN_USABLE_SIGNAL;
 
       if (isCovered) coveredCellsCount++;
       else deadCellsCount++;

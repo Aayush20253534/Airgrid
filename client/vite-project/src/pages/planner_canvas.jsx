@@ -50,6 +50,7 @@ const INITIAL_NODES = [
 export default function AirGridPlannerCanvas() {
   // States
   const [nodes, setNodes] = useState(INITIAL_NODES);
+  const [walls, setWalls] = useState([]);
   const [selectedNodeId, setSelectedNodeId] = useState(null);
   const [recommendations, setRecommendations] = useState([]);
   const [showRecommendations, setShowRecommendations] = useState(false);
@@ -110,6 +111,7 @@ export default function AirGridPlannerCanvas() {
   canvasHeight: CANVAS_HEIGHT,
   gridSize: GRID_SIZE,
   nodes,
+  walls,
 });
 
 const handleAnalyzeWithBackend = async () => {
@@ -132,7 +134,7 @@ useEffect(() => {
   }, 400);
 
   return () => clearTimeout(timer);
-}, [nodes, areaBlocksX, areaBlocksY]);
+}, [areaBlocksX, areaBlocksY]);
 
 const handleOptimizeWithBackend = async () => {
   try {
@@ -170,6 +172,7 @@ const handleSaveProject = async () => {
       canvasHeight: CANVAS_HEIGHT,
       gridSize: GRID_SIZE,
       nodes,
+      walls,
       visualSettings: visuals,
       lastAnalysis: backendAnalysis,
     });
@@ -207,6 +210,7 @@ const handleOpenProject = async (projectFile) => {
     setAreaBlocksX(project.areaBlocksX || DEFAULT_BLOCKS_X);
     setAreaBlocksY(project.areaBlocksY || DEFAULT_BLOCKS_Y);
     setNodes(project.nodes || []);
+    setWalls(project.walls || []);
     setVisuals(project.visualSettings || visuals);
     setBackendAnalysis(project.lastAnalysis || null);
     setSelectedNodeId(null);
@@ -219,22 +223,66 @@ const handleOpenProject = async (projectFile) => {
     setApiError(error.message);
   }
 };
+const handleNodeDragMove = (id, e) => {
+  e.cancelBubble = true;
+  setBackendAnalysis(null);
 
-  const handleNodeDragMove = (id, e) => {
-    const stage = e.target.getStage();
-    const pointerPos = stage.getPointerPosition();
-    
-    setNodes(nodes.map(node => {
-      if (node.id === id) {
-        return {
-          ...node,
-          x: Math.max(10, Math.min(pointerPos.x, CANVAS_WIDTH - 10)),
-          y: Math.max(10, Math.min(pointerPos.y, CANVAS_HEIGHT - 10)),
-        };
-      }
-      return node;
-    }));
-  };
+  const pos = e.target.position();
+
+  setNodes((prev) =>
+    prev.map((node) =>
+      node.id === id
+        ? {
+            ...node,
+            x: Math.max(10, Math.min(pos.x, CANVAS_WIDTH - 10)),
+            y: Math.max(10, Math.min(pos.y, CANVAS_HEIGHT - 10)),
+          }
+        : node
+    )
+  );
+};
+
+  const handleWallDragMove = (id, e) => {
+  e.cancelBubble = true;
+
+  const pos = e.target.position();
+
+  setWalls((prev) =>
+    prev.map((wall) =>
+      wall.id === id
+        ? {
+            ...wall,
+            x: Math.max(0, Math.min(pos.x, CANVAS_WIDTH - wall.width)),
+            y: Math.max(0, Math.min(pos.y, CANVAS_HEIGHT - wall.height)),
+          }
+        : wall
+    )
+  );
+};
+
+const getConnectedWifiNode = (iotNode) => {
+  if (iotNode.type !== "IoT Node") return null;
+
+  const wifiNodes = nodes.filter((node) =>
+    COVERAGE_DEVICE_TYPES.includes(node.type)
+  );
+
+  let nearest = null;
+  let nearestDistance = Infinity;
+
+  wifiNodes.forEach((wifi) => {
+    const dx = iotNode.x - wifi.x;
+    const dy = iotNode.y - wifi.y;
+    const distance = Math.sqrt(dx * dx + dy * dy);
+
+    if (distance <= wifi.range * 0.85 && distance < nearestDistance) {
+      nearest = wifi;
+      nearestDistance = distance;
+    }
+  });
+
+  return nearest;
+};
 
   const updateSelectedNodeProperty = (key, value) => {
     if (!selectedNodeId) return;
@@ -242,11 +290,23 @@ const handleOpenProject = async (projectFile) => {
   };
 
   const resetCanvas = () => {
-    setNodes([]);
-    setSelectedNodeId(null);
-    setRecommendations([]);
-    setShowRecommendations(false);
-  };
+  setNodes([]);
+  setWalls([]);
+  setSelectedNodeId(null);
+
+  setRecommendations([]);
+  setShowRecommendations(false);
+
+  setBackendAnalysis(null);
+  setApiError("");
+
+  setVisuals({
+    coverage: true,
+    heatmap: false,
+    interference: true,
+    deadZones: false,
+  });
+};
 
   // ==========================================
   // CORE ENGINE ALGORITHMS
@@ -381,8 +441,10 @@ const displayInterference =
 const displayHealth =
   backendAnalysis?.networkHealthScore ?? networkHealthScore;
 
-const renderCells = backendAnalysis?.cells || [];
-const renderInterferenceVectors = backendAnalysis?.interferenceVectors || [];
+const renderCells = backendAnalysis?.cells || gridAnalysis.cells;
+const renderInterferenceVectors =
+  backendAnalysis?.interferenceVectors || interferenceVectors;
+
   // 4. Heuristic Rule Optimization Engine
   const generateOptimizationSuggestions = () => {
     const suggestions = [];
@@ -553,6 +615,26 @@ const renderInterferenceVectors = backendAnalysis?.interferenceVectors || [];
             </div>
 
             {/* Visualization Layer Control */}
+
+            <button
+  onClick={() => {
+    const newWall = {
+      id: `wall-${Date.now()}`,
+      x: 120,
+      y: 120,
+      width: 160,
+      height: 40,  
+      attenuation: 0.08,
+      name: `Wall-${walls.length + 1}`,
+    };
+
+    setWalls([...walls, newWall]);
+  }}
+  className="w-full flex items-center justify-center space-x-2 py-2 px-3 bg-slate-900 hover:bg-slate-800 border border-slate-800 text-orange-400 rounded text-xs font-semibold font-mono transition-colors"
+>
+  <Layers className="w-3.5 h-3.5" />
+  <span>ADD WALL / OBSTACLE</span>
+</button>
             <div className="pt-2 border-t border-slate-800/60">
               <h3 className="text-xs font-semibold text-slate-400 uppercase tracking-wider font-mono mb-3 flex items-center gap-2">
                 <Eye className="w-3.5 h-3.5 text-cyan-500" /> Layer Overlays
@@ -664,6 +746,7 @@ const renderInterferenceVectors = backendAnalysis?.interferenceVectors || [];
                   <Line key={`h-${i}`} points={[0, i * 20, CANVAS_WIDTH, i * 20]} stroke="#1e293b" strokeWidth={i % 2 === 0 ? 0.4 : 0.1} listening={false} />
                 ))}
 
+
                 {/* B. Heatmap Matrix Nodes / Dead Zone Rendering */}
                 {(visuals.heatmap || visuals.deadZones) && renderCells.map((cell, idx) => {
                   let fillColor = 'transparent';
@@ -726,6 +809,51 @@ const renderInterferenceVectors = backendAnalysis?.interferenceVectors || [];
                   );
                 })}
 
+  {walls.map((wall) => (
+  <Rect
+    key={wall.id}
+    x={wall.x}
+    y={wall.y}
+    width={wall.width}
+    height={wall.height}
+    fill="#7c2d12"
+    opacity={0.75}
+    stroke="#fb923c"
+    strokeWidth={1}
+    draggable
+    listening={true}
+    onMouseDown={(e) => {
+      e.cancelBubble = true;
+      setSelectedNodeId(node.id);
+    }}
+    onDragStart={(e) => {
+      e.cancelBubble = true;
+    }}
+    onDragMove={(e) => handleWallDragMove(wall.id, e)}
+    onDragEnd={(e) => handleWallDragMove(wall.id, e)}
+  />
+))}
+
+{nodes
+  .filter((node) => node.type === "IoT Node")
+  .map((iot) => {
+    const wifi = getConnectedWifiNode(iot);
+
+    if (!wifi) return null;
+
+    return (
+      <Line
+        key={`iot-link-${iot.id}`}
+        points={[iot.x, iot.y, wifi.x, wifi.y]}
+        stroke="#10b981"
+        strokeWidth={1.5}
+        dash={[6, 4]}
+        opacity={0.85}
+        listening={false}
+      />
+    );
+  })}
+
                 {/* D. Transceiver Nodes Layer */}
                 {nodes.map(node => {
                   const isSelected = node.id === selectedNodeId;
@@ -737,14 +865,31 @@ const renderInterferenceVectors = backendAnalysis?.interferenceVectors || [];
                       x={node.x}
                       y={node.y}
                       draggable
-                      onDragMove={(e) => handleNodeDragMove(node.id, e)}
-                      onClick={(e) => {
-                        e.cancelBubble = true; // Stop unselect triggers
-                        setSelectedNodeId(node.id);
-                      }}
+                      onMouseDown={(e) => {
+  e.cancelBubble = true;
+  setSelectedNodeId(node.id);
+}}
+onDragStart={(e) => {
+  e.cancelBubble = true;
+}}
+                    onDragMove={(e) => handleNodeDragMove(node.id, e)}
+onDragEnd={(e) => handleNodeDragMove(node.id, e)}
+onClick={(e) => {
+  e.cancelBubble = true;
+  setSelectedNodeId(node.id);
+}}
+onTap={(e) => {
+  e.cancelBubble = true;
+  setSelectedNodeId(node.id);
+}}
                     >
+                      <Circle
+  radius={30}
+  fill="#000000"
+  opacity={0.01}
+/>
                       {/* Range / Boundary Signal Ring */}
-                      {visuals.coverage && COVERAGE_DEVICE_TYPES.includes(node.type) && (
+                      {visuals.coverage && (
                         <Circle 
                           radius={node.range}
                           fill={devMeta.color}
@@ -789,6 +934,20 @@ const renderInterferenceVectors = backendAnalysis?.interferenceVectors || [];
                         fontSize={9}
                         fontFamily="monospace"
                       />
+
+                      {node.type === "IoT Node" && (
+  <Text
+    text={getConnectedWifiNode(node) ? "ONLINE" : "NO WIFI"}
+    y={38}
+    x={-35}
+    width={70}
+    align="center"
+    fill={getConnectedWifiNode(node) ? "#10b981" : "#ef4444"}
+    fontSize={9}
+    fontFamily="monospace"
+    fontStyle="bold"
+  />
+)}
 
                       {/* Micro Inner Tracker Core */}
                       <Circle radius={4} fill={devMeta.color} />
@@ -1150,7 +1309,29 @@ const recColor = rec.color || colorMap[rec.type] || "text-slate-400 bg-slate-900
                     </Group>
                   );
                 })}
-
+{walls.map((wall) => (
+  <Rect
+    key={`expanded-${wall.id}`}
+    x={wall.x}
+    y={wall.y}
+    width={wall.width}
+    height={wall.height}
+    fill="#7c2d12"
+    opacity={0.75}
+    stroke="#fb923c"
+    strokeWidth={1}
+    draggable
+    listening={true}
+    onMouseDown={(e) => {
+      e.cancelBubble = true;
+    }}
+    onDragStart={(e) => {
+      e.cancelBubble = true;
+    }}
+    onDragMove={(e) => handleWallDragMove(wall.id, e)}
+    onDragEnd={(e) => handleWallDragMove(wall.id, e)}
+  />
+))}
                 {nodes.map((node) => {
                   const isSelected = node.id === selectedNodeId;
                   const devMeta = Object.values(DEVICE_TYPES).find((d) => d.type === node.type) || DEVICE_TYPES.WIFI_AP;
@@ -1161,13 +1342,30 @@ const recColor = rec.color || colorMap[rec.type] || "text-slate-400 bg-slate-900
                       x={node.x}
                       y={node.y}
                       draggable
-                      onDragMove={(e) => handleNodeDragMove(node.id, e)}
-                      onClick={(e) => {
-                        e.cancelBubble = true;
-                        setSelectedNodeId(node.id);
-                      }}
+                      onMouseDown={(e) => {
+  e.cancelBubble = true;
+}}
+onDragStart={(e) => {
+  e.cancelBubble = true;
+}}
+                     onDragMove={(e) => handleNodeDragMove(node.id, e)}
+onDragEnd={(e) => handleNodeDragMove(node.id, e)}
+onClick={(e) => {
+  e.cancelBubble = true;
+  setSelectedNodeId(node.id);
+}}
+onTap={(e) => {
+  e.cancelBubble = true;
+  setSelectedNodeId(node.id);
+}}
                     >
-                      {visuals.coverage && COVERAGE_DEVICE_TYPES.includes(node.type) && (
+                       <Circle
+    radius={30}
+    fill="#000000"
+    opacity={0.01}
+  />
+                      
+                      {visuals.coverage && (
                         <Circle
                           radius={node.range}
                           fill={devMeta.color}
@@ -1210,6 +1408,19 @@ const recColor = rec.color || colorMap[rec.type] || "text-slate-400 bg-slate-900
                         fontSize={9}
                         fontFamily="monospace"
                       />
+                      {node.type === "IoT Node" && (
+  <Text
+    text={getConnectedWifiNode(node) ? "ONLINE" : "NO WIFI"}
+    y={38}
+    x={-35}
+    width={70}
+    align="center"
+    fill={getConnectedWifiNode(node) ? "#10b981" : "#ef4444"}
+    fontSize={9}
+    fontFamily="monospace"
+    fontStyle="bold"
+  />
+)}
 
                       <Circle radius={4} fill={devMeta.color} />
                     </Group>
