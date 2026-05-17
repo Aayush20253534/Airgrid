@@ -108,8 +108,10 @@ export default function AirGridPlannerCanvas() {
         power: template.power,
         name: `${template.type.replace(' ', '')}-${nodes.length + 1}`
       };
-      setNodes([...nodes, newNode]);
-      setSelectedNodeId(newNode.id);
+  setNodes([...nodes, newNode]);
+setSelectedNodeId(newNode.id);
+setSelectedWallId(null);
+setBackendAnalysis(null);
     }
   };
   const buildPlannerPayload = () => ({
@@ -229,7 +231,7 @@ const handleOpenProject = async (projectFile) => {
     setApiError(error.message);
   }
 };
-const handleNodeDragMove = (id, e) => {
+const handleNodeDragEnd = (id, e) => {
   e.cancelBubble = true;
   setBackendAnalysis(null);
 
@@ -247,8 +249,7 @@ const handleNodeDragMove = (id, e) => {
     )
   );
 };
-
-  const handleWallDragMove = (id, e) => {
+const handleWallDragEnd = (id, e) => {
   e.cancelBubble = true;
   setBackendAnalysis(null);
 
@@ -268,35 +269,58 @@ const handleNodeDragMove = (id, e) => {
 };
 
 const getConnectedWifiNode = (iotNode) => {
-  if (iotNode.type !== "IoT Node") return null;
+  return getIoTSignalInfo(iotNode).connectedNode;
+};
+
+const getIoTSignalInfo = (iotNode) => {
+  if (iotNode.type !== "IoT Node") {
+    return { connectedNode: null, signal: -100, status: "NO WIFI" };
+  }
 
   const wifiNodes = nodes.filter((node) =>
     COVERAGE_DEVICE_TYPES.includes(node.type)
   );
 
-  let nearest = null;
-  let nearestDistance = Infinity;
+  let bestNode = null;
+  let bestSignal = -Infinity;
 
   wifiNodes.forEach((wifi) => {
     const dx = iotNode.x - wifi.x;
     const dy = iotNode.y - wifi.y;
     const distance = Math.sqrt(dx * dx + dy * dy);
 
-    const rawSignal = Math.max(0, (1 - distance / wifi.range) * wifi.power);
-    const signal = applyWallAttenuation(rawSignal, wifi.x, wifi.y, iotNode.x, iotNode.y);
+    if (distance > wifi.range) return;
 
-    if (distance <= wifi.range * 0.85 && signal > 6 && distance < nearestDistance) {
-      nearest = wifi;
-      nearestDistance = distance;
+let signal = calculateDbmSignal(wifi.power, distance);
+
+signal = applyWallAttenuation(
+  signal,
+  wifi.x,
+  wifi.y,
+  iotNode.x,
+  iotNode.y
+);
+    if (signal > bestSignal) {
+      bestSignal = signal;
+      bestNode = wifi;
     }
   });
 
-  return nearest;
+  const connected = bestNode && bestSignal >= -75;
+
+  return {
+    connectedNode: connected ? bestNode : null,
+    signal: Number(bestSignal.toFixed(1)),
+    status: connected ? "ONLINE" : "NO WIFI",
+  };
 };
 
   const updateSelectedNodeProperty = (key, value) => {
     if (!selectedNodeId) return;
-    setNodes(nodes.map(node => node.id === selectedNodeId ? { ...node, [key]: value } : node));
+    setNodes(nodes.map(node =>
+  node.id === selectedNodeId ? { ...node, [key]: value } : node
+));
+setBackendAnalysis(null);
   };
 
   const updateSelectedWallProperty = (key, value) => {
@@ -370,11 +394,20 @@ const applyWallAttenuation = (signal, x1, y1, x2, y2) => {
 
   walls.forEach((wall) => {
     if (lineIntersectsRect(x1, y1, x2, y2, wall)) {
-      reducedSignal *= 1 - wall.attenuation;
+      reducedSignal -= Number(wall.attenuation || 0);
     }
   });
 
   return reducedSignal;
+};
+
+const calculateDbmSignal = (txPower, distance) => {
+  const safeDistance = Math.max(distance, 1);
+
+  // simple RF free-space path loss approximation
+  const pathLoss = 20 * Math.log10(safeDistance);
+
+  return txPower - pathLoss;
 };
 
   // 1. Coverage & Heatmap Matrix Grid Calculations
@@ -394,7 +427,7 @@ const applyWallAttenuation = (signal, x1, y1, x2, y2) => {
         const cellX = c * GRID_SIZE + GRID_SIZE / 2;
         const cellY = r * GRID_SIZE + GRID_SIZE / 2;
         
-        let highestSignal = 0;
+        let highestSignal = -Infinity;
         let activeInterferenceTint = 0;
         let channelsPresent = [];
 
@@ -406,10 +439,10 @@ const applyWallAttenuation = (signal, x1, y1, x2, y2) => {
 
           if (distance <= node.range) {
             // Logarithmic signal loss simulation scaled up for visual aesthetic
-            const rawSignal = Math.max(0, (1 - distance / node.range) * node.power);
+        let signal = calculateDbmSignal(node.power, distance);
 
-const signal = applyWallAttenuation(
-  rawSignal,
+signal = applyWallAttenuation(
+  signal,
   node.x,
   node.y,
   cellX,
@@ -427,7 +460,7 @@ const signal = applyWallAttenuation(
           activeInterferenceTint = (channelsPresent.length - uniqueChans.size) * 0.4;
         }
 
-        const isCovered = highestSignal > 0;
+        const isCovered = highestSignal >= -75;
         if (isCovered) coveredCellsCount++;
         else deadCellsCount++;
 
@@ -517,6 +550,22 @@ const displayHealth =
 const renderCells = backendAnalysis?.cells || gridAnalysis.cells;
 const renderInterferenceVectors =
   backendAnalysis?.interferenceVectors || interferenceVectors;
+
+  const orderedNodes = useMemo(() => {
+  return [...nodes].sort((a, b) => {
+    if (a.id === selectedNodeId) return 1;
+    if (b.id === selectedNodeId) return -1;
+    return 0;
+  });
+}, [nodes, selectedNodeId]);
+
+const orderedWalls = useMemo(() => {
+  return [...walls].sort((a, b) => {
+    if (a.id === selectedWallId) return 1;
+    if (b.id === selectedWallId) return -1;
+    return 0;
+  });
+}, [walls, selectedWallId]);
 
   // 4. Heuristic Rule Optimization Engine
   const generateOptimizationSuggestions = () => {
@@ -697,11 +746,14 @@ const renderInterferenceVectors =
       y: 120,
       width: 160,
       height: 40,  
-      attenuation: 0.08,
+      attenuation: 6,
       name: `Wall-${walls.length + 1}`,
     };
 
     setWalls([...walls, newWall]);
+setSelectedWallId(newWall.id);
+setSelectedNodeId(null);
+setBackendAnalysis(null);
   }}
   className="w-full flex items-center justify-center space-x-2 py-2 px-3 bg-slate-900 hover:bg-slate-800 border border-slate-800 text-orange-400 rounded text-xs font-semibold font-mono transition-colors"
 >
@@ -833,9 +885,9 @@ const renderInterferenceVectors =
                     opacity = 0.22;
                     if (cell.interferenceTint > 0) {
                       fillColor = '#a855f7'; // Interference structural damage node (Purple)
-                    } else if (cell.signalStrength > 14) {
+                    } else if (cell.signalStrength > -55) {
                       fillColor = '#06b6d4'; // High strength cyan
-                    } else if (cell.signalStrength > 7) {
+                    } else if (cell.signalStrength > -67) {
                       fillColor = '#f59e0b'; // Amber warning intermediate line
                     } else {
                       fillColor = '#3b82f6'; // Muted generic perimeter node
@@ -905,7 +957,7 @@ const renderInterferenceVectors =
   })}
 
                 {/* D. Transceiver Nodes Layer */}
-                {nodes.map(node => {
+                {orderedNodes.map(node => {
                   const isSelected = node.id === selectedNodeId;
                   const devMeta = Object.values(DEVICE_TYPES).find(d => d.type === node.type) || DEVICE_TYPES.WIFI_AP;
 
@@ -915,29 +967,24 @@ const renderInterferenceVectors =
                       x={node.x}
                       y={node.y}
                       draggable
+                      dragDistance={2}
                       onMouseDown={(e) => {
   e.cancelBubble = true;
+  e.target.getParent().moveToTop();
   setSelectedNodeId(node.id);
   setSelectedWallId(null);
 }}
 onDragStart={(e) => {
   e.cancelBubble = true;
-}}
-                    onDragMove={(e) => handleNodeDragMove(node.id, e)}
-onDragEnd={(e) => handleNodeDragMove(node.id, e)}
-onClick={(e) => {
-  e.cancelBubble = true;
   setSelectedNodeId(node.id);
+  setSelectedWallId(null);
 }}
-onTap={(e) => {
-  e.cancelBubble = true;
-  setSelectedNodeId(node.id);
-}}
+onDragEnd={(e) => handleNodeDragEnd(node.id, e)}
                     >
-                      <Circle
-  radius={30}
-  fill="#000000"
-  opacity={0.01}
+<Circle
+  radius={32}
+  fill="rgba(0,0,0,0.01)"
+  listening={true}
 />
                       {/* Range / Boundary Signal Ring */}
                       {visuals.coverage && (
@@ -961,20 +1008,22 @@ onTap={(e) => {
                         shadowColor={devMeta.color}
                         shadowBlur={isSelected ? 12 : 3}
                         shadowOpacity={0.5}
+                        listening={true}
                       />
 
                       {/* Text Indicator Flags */}
-                      <Text 
-                        text={node.name}
-                        y={22}
-                        x={-40}
-                        width={80}
-                        align="center"
-                        fill={isSelected ? '#22d3ee' : '#94a3b8'}
-                        fontSize={10}
-                        fontFamily="monospace"
-                        fontStyle="bold"
-                      />
+                  <Text 
+  text={node.name}
+  y={22}
+  x={-40}
+  width={80}
+  align="center"
+  fill={isSelected ? '#22d3ee' : '#94a3b8'}
+  fontSize={10}
+  fontFamily="monospace"
+  fontStyle="bold"
+  listening={false}
+/>
                       
                       <Text 
                         text={`Ch:${node.channel}`}
@@ -985,28 +1034,56 @@ onTap={(e) => {
                         fill="#64748b"
                         fontSize={9}
                         fontFamily="monospace"
+                        listening={false}
                       />
 
-                      {node.type === "IoT Node" && (
-  <Text
-    text={getConnectedWifiNode(node) ? "ONLINE" : "NO WIFI"}
-    y={38}
-    x={-35}
-    width={70}
-    align="center"
-    fill={getConnectedWifiNode(node) ? "#10b981" : "#ef4444"}
-    fontSize={9}
-    fontFamily="monospace"
-    fontStyle="bold"
-  />
-)}
+                     {node.type === "IoT Node" && (() => {
+  const signalInfo = getIoTSignalInfo(node);
+
+  return (
+    <>
+      <Text
+        text={signalInfo.status}
+        y={38}
+        x={-35}
+        width={70}
+        align="center"
+        fill={signalInfo.connectedNode ? "#10b981" : "#ef4444"}
+        fontSize={9}
+        fontFamily="monospace"
+        fontStyle="bold"
+        listening={false}
+      />
+
+      <Text
+        text={`SIG: ${signalInfo.signal} dBm`}
+        y={50}
+        x={-45}
+        width={90}
+        align="center"
+        listening={false}
+        fill={
+  signalInfo.signal >= -67
+    ? "#10b981"
+    : signalInfo.signal >= -75
+    ? "#f59e0b"
+    : "#ef4444"
+}
+        fontSize={8}
+        fontFamily="monospace"
+        fontStyle="bold"
+        listening={false}
+      />
+    </>
+  );
+})()}
 
                       {/* Micro Inner Tracker Core */}
-                      <Circle radius={4} fill={devMeta.color} />
+                      <Circle radius={4} fill={devMeta.color} listening={false} />
                     </Group>
                   );
                 })}
-     {walls.map((wall) => {
+     {orderedWalls.map((wall) => {
   const isSelected = wall.id === selectedWallId;
 
   return (
@@ -1017,21 +1094,16 @@ onTap={(e) => {
       draggable
       onMouseDown={(e) => {
         e.cancelBubble = true;
+        e.target.getParent().moveToTop();
         setSelectedWallId(wall.id);
         setSelectedNodeId(null);
       }}
-      onClick={(e) => {
-        e.cancelBubble = true;
-        setSelectedWallId(wall.id);
-        setSelectedNodeId(null);
-      }}
-      onTap={(e) => {
-        e.cancelBubble = true;
-        setSelectedWallId(wall.id);
-        setSelectedNodeId(null);
-      }}
-      onDragMove={(e) => handleWallDragMove(wall.id, e)}
-      onDragEnd={(e) => handleWallDragMove(wall.id, e)}
+onDragStart={(e) => {
+  e.cancelBubble = true;
+  setSelectedWallId(wall.id);
+  setSelectedNodeId(null);
+}}
+onDragEnd={(e) => handleWallDragEnd(wall.id, e)}
     >
       <Rect
         x={0}
@@ -1309,18 +1381,18 @@ const recColor = rec.color || colorMap[rec.type] || "text-slate-400 bg-slate-900
       <div className="flex justify-between font-mono text-[11px]">
         <span className="text-slate-400">Penetration Loss:</span>
         <span className="text-red-400 font-bold">
-          {Math.round(selectedWall.attenuation * 100)}%
+          {selectedWall.attenuation} dB
         </span>
       </div>
       <input
         type="range"
-        min="0"
-        max="100"
-        value={Math.round(selectedWall.attenuation * 100)}
+        min="1"
+        max="40"
+        value={selectedWall.attenuation}
         onChange={(e) =>
           updateSelectedWallProperty(
             "attenuation",
-            parseInt(e.target.value) / 100
+            parseInt(e.target.value)
           )
         }
         className="w-full h-1 bg-slate-950 rounded-lg appearance-none cursor-pointer accent-red-500"
@@ -1495,8 +1567,8 @@ const recColor = rec.color || colorMap[rec.type] || "text-slate-400 bg-slate-900
                   } else if (visuals.heatmap && cell.isCovered) {
                     opacity = 0.22;
                     if (cell.interferenceTint > 0) fillColor = "#a855f7";
-                    else if (cell.signalStrength > 14) fillColor = "#06b6d4";
-                    else if (cell.signalStrength > 7) fillColor = "#f59e0b";
+                    else if (cell.signalStrength > -55) fillColor = "#06b6d4";
+                    else if (cell.signalStrength > -67) fillColor = "#f59e0b";
                     else fillColor = "#3b82f6";
                   }
 
@@ -1561,7 +1633,7 @@ const recColor = rec.color || colorMap[rec.type] || "text-slate-400 bg-slate-900
     );
   })}
 
-                {nodes.map((node) => {
+                {orderedNodes.map((node) => {
                   const isSelected = node.id === selectedNodeId;
                   const devMeta = Object.values(DEVICE_TYPES).find((d) => d.type === node.type) || DEVICE_TYPES.WIFI_AP;
 
@@ -1571,30 +1643,26 @@ const recColor = rec.color || colorMap[rec.type] || "text-slate-400 bg-slate-900
                       x={node.x}
                       y={node.y}
                       draggable
+                      dragDistance={2}
                       onMouseDown={(e) => {
   e.cancelBubble = true;
+  e.target.getParent().moveToTop();
   setSelectedNodeId(node.id);
   setSelectedWallId(null);
 }}
 onDragStart={(e) => {
   e.cancelBubble = true;
-}}
-                     onDragMove={(e) => handleNodeDragMove(node.id, e)}
-onDragEnd={(e) => handleNodeDragMove(node.id, e)}
-onClick={(e) => {
-  e.cancelBubble = true;
   setSelectedNodeId(node.id);
+  setSelectedWallId(null);
 }}
-onTap={(e) => {
-  e.cancelBubble = true;
-  setSelectedNodeId(node.id);
-}}
+onDragEnd={(e) => handleNodeDragEnd(node.id, e)}
+
                     >
-                       <Circle
-    radius={30}
-    fill="#000000"
-    opacity={0.01}
-  />
+   <Circle
+  radius={32}
+  fill="rgba(0,0,0,0.01)"
+  listening={true}
+/>
                       
                       {visuals.coverage && (
                      <Circle 
@@ -1616,6 +1684,7 @@ onTap={(e) => {
                         shadowColor={devMeta.color}
                         shadowBlur={isSelected ? 12 : 3}
                         shadowOpacity={0.5}
+                        listening={true}
                       />
 
                       <Text
@@ -1628,6 +1697,7 @@ onTap={(e) => {
                         fontSize={10}
                         fontFamily="monospace"
                         fontStyle="bold"
+                        listening={false}
                       />
 
                       <Text
@@ -1639,27 +1709,54 @@ onTap={(e) => {
                         fill="#64748b"
                         fontSize={9}
                         fontFamily="monospace"
+                        listening={false}
                       />
-                      {node.type === "IoT Node" && (
-  <Text
-    text={getConnectedWifiNode(node) ? "ONLINE" : "NO WIFI"}
-    y={38}
-    x={-35}
-    width={70}
-    align="center"
-    fill={getConnectedWifiNode(node) ? "#10b981" : "#ef4444"}
-    fontSize={9}
-    fontFamily="monospace"
-    fontStyle="bold"
-  />
-)}
+                      {node.type === "IoT Node" && (() => {
+  const signalInfo = getIoTSignalInfo(node);
 
-                      <Circle radius={4} fill={devMeta.color} />
+  return (
+    <>
+      <Text
+        text={signalInfo.status}
+        y={38}
+        x={-35}
+        width={70}
+        align="center"
+        fill={signalInfo.connectedNode ? "#10b981" : "#ef4444"}
+        fontSize={9}
+        fontFamily="monospace"
+        fontStyle="bold"
+        listening={false}
+      />
+
+      <Text
+        text={`SIG: ${signalInfo.signal} dBm`}
+        y={50}
+        x={-45}
+        width={90}
+        align="center"
+        fill={
+  signalInfo.signal >= -67
+    ? "#10b981"
+    : signalInfo.signal >= -75
+    ? "#f59e0b"
+    : "#ef4444"
+}
+        fontSize={8}
+        fontFamily="monospace"
+        fontStyle="bold"
+        listening={false}
+      />
+    </>
+  );
+})()}
+
+                      <Circle radius={4} fill={devMeta.color} listening={false} />
                     </Group>
                   );
                 })}
 
-{walls.map((wall) => {
+{orderedWalls.map((wall) => {
   const isSelected = wall.id === selectedWallId;
 
   return (
@@ -1670,21 +1767,17 @@ onTap={(e) => {
       draggable
       onMouseDown={(e) => {
         e.cancelBubble = true;
+        e.target.getParent().moveToTop();
         setSelectedWallId(wall.id);
         setSelectedNodeId(null);
       }}
-      onClick={(e) => {
-        e.cancelBubble = true;
-        setSelectedWallId(wall.id);
-        setSelectedNodeId(null);
-      }}
-      onTap={(e) => {
-        e.cancelBubble = true;
-        setSelectedWallId(wall.id);
-        setSelectedNodeId(null);
-      }}
-      onDragMove={(e) => handleWallDragMove(wall.id, e)}
-      onDragEnd={(e) => handleWallDragMove(wall.id, e)}
+
+   onDragStart={(e) => {
+  e.cancelBubble = true;
+  setSelectedWallId(wall.id);
+  setSelectedNodeId(null);
+}}
+onDragEnd={(e) => handleWallDragEnd(wall.id, e)}
     >
       <Rect
         x={0}
