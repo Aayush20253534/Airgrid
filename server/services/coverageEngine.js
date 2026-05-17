@@ -1,3 +1,5 @@
+const COVERAGE_DEVICE_TYPES = ["WiFi AP", "Router"];
+
 const calculateCoverage = (canvasWidth, canvasHeight, gridSize, nodes) => {
   const cols = Math.ceil(canvasWidth / gridSize);
   const rows = Math.ceil(canvasHeight / gridSize);
@@ -5,6 +7,10 @@ const calculateCoverage = (canvasWidth, canvasHeight, gridSize, nodes) => {
   let coveredCellsCount = 0;
   let deadCellsCount = 0;
   const cells = [];
+
+  const coverageNodes = nodes.filter((node) =>
+    COVERAGE_DEVICE_TYPES.includes(node.type)
+  );
 
   for (let r = 0; r < rows; r++) {
     for (let c = 0; c < cols; c++) {
@@ -14,19 +20,24 @@ const calculateCoverage = (canvasWidth, canvasHeight, gridSize, nodes) => {
       let highestSignal = 0;
       const channelsPresent = [];
 
-      nodes.forEach((node) => {
+      coverageNodes.forEach((node) => {
         const dx = cellX - node.x;
         const dy = cellY - node.y;
         const distance = Math.sqrt(dx * dx + dy * dy);
 
         if (distance <= node.range) {
-          const signal = Math.max(0, (1 - distance / node.range) * node.power);
+          const signal = Math.max(
+            0,
+            (1 - distance / node.range) * node.power
+          );
+
           highestSignal = Math.max(highestSignal, signal);
           channelsPresent.push(node.channel);
         }
       });
 
       const uniqueChannels = new Set(channelsPresent);
+
       const interferenceTint =
         channelsPresent.length > uniqueChannels.size
           ? Math.min((channelsPresent.length - uniqueChannels.size) * 0.4, 1)
@@ -47,7 +58,7 @@ const calculateCoverage = (canvasWidth, canvasHeight, gridSize, nodes) => {
     }
   }
 
-  const totalCells = cols * rows;
+  const totalCells = cols * rows || 1;
 
   return {
     cells,

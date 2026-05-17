@@ -32,6 +32,7 @@ import {
 const GRID_SIZE = 40;
 const DEFAULT_BLOCKS_X = 20;
 const DEFAULT_BLOCKS_Y = 14;
+const COVERAGE_DEVICE_TYPES = ["WiFi AP", "Router"];
 
 const DEVICE_TYPES = {
   WIFI_AP: { type: 'WiFi AP', icon: Wifi, color: '#06b6d4', defaultRange: 120, freq: '2.4 GHz', chan: 6, power: 20 },
@@ -124,6 +125,14 @@ const handleAnalyzeWithBackend = async () => {
     setIsAnalyzing(false);
   }
 };
+
+useEffect(() => {
+  const timer = setTimeout(() => {
+    handleAnalyzeWithBackend();
+  }, 400);
+
+  return () => clearTimeout(timer);
+}, [nodes, areaBlocksX, areaBlocksY]);
 
 const handleOptimizeWithBackend = async () => {
   try {
@@ -251,6 +260,10 @@ const handleOpenProject = async (projectFile) => {
     let deadCellsCount = 0;
     const cells = [];
 
+  const coverageNodes = nodes.filter((node) =>
+    COVERAGE_DEVICE_TYPES.includes(node.type)
+  );
+
     for (let r = 0; r < rows; r++) {
       for (let c = 0; c < cols; c++) {
         const cellX = c * GRID_SIZE + GRID_SIZE / 2;
@@ -261,7 +274,7 @@ const handleOpenProject = async (projectFile) => {
         let channelsPresent = [];
 
         // Determine if cell is covered and measure composite signal strength
-        nodes.forEach(node => {
+        coverageNodes.forEach(node => {
           const dx = cellX - node.x;
           const dy = cellY - node.y;
           const distance = Math.sqrt(dx * dx + dy * dy);
@@ -368,6 +381,8 @@ const displayInterference =
 const displayHealth =
   backendAnalysis?.networkHealthScore ?? networkHealthScore;
 
+const renderCells = backendAnalysis?.cells || [];
+const renderInterferenceVectors = backendAnalysis?.interferenceVectors || [];
   // 4. Heuristic Rule Optimization Engine
   const generateOptimizationSuggestions = () => {
     const suggestions = [];
@@ -650,7 +665,7 @@ const displayHealth =
                 ))}
 
                 {/* B. Heatmap Matrix Nodes / Dead Zone Rendering */}
-                {(visuals.heatmap || visuals.deadZones) && gridAnalysis.cells.map((cell, idx) => {
+                {(visuals.heatmap || visuals.deadZones) && renderCells.map((cell, idx) => {
                   let fillColor = 'transparent';
                   let opacity = 0;
 
@@ -687,7 +702,7 @@ const displayHealth =
                 })}
 
                 {/* C. Node Interference Warning Vector Paths */}
-                {visuals.interference && interferenceVectors.map(v => {
+                {visuals.interference && renderInterferenceVectors.map(v => {
                   const color = v.severity === 'critical' ? '#ef4444' : v.severity === 'medium' ? '#f59e0b' : '#a855f7';
                   const dashPattern = v.severity === 'critical' ? [6, 4] : [10, 5];
                   return (
@@ -729,7 +744,7 @@ const displayHealth =
                       }}
                     >
                       {/* Range / Boundary Signal Ring */}
-                      {visuals.coverage && (
+                      {visuals.coverage && COVERAGE_DEVICE_TYPES.includes(node.type) && (
                         <Circle 
                           radius={node.range}
                           fill={devMeta.color}
@@ -1080,7 +1095,7 @@ const recColor = rec.color || colorMap[rec.type] || "text-slate-400 bg-slate-900
                   <Line key={`expanded-h-${i}`} points={[0, i * 20, CANVAS_WIDTH, i * 20]} stroke="#1e293b" strokeWidth={i % 2 === 0 ? 0.4 : 0.1} listening={false} />
                 ))}
 
-                {(visuals.heatmap || visuals.deadZones) && gridAnalysis.cells.map((cell, idx) => {
+                {(visuals.heatmap || visuals.deadZones) && renderCells.map((cell, idx) => {
                   let fillColor = "transparent";
                   let opacity = 0;
 
@@ -1111,7 +1126,7 @@ const recColor = rec.color || colorMap[rec.type] || "text-slate-400 bg-slate-900
                   );
                 })}
 
-                {visuals.interference && interferenceVectors.map((v) => {
+                {visuals.interference && renderInterferenceVectors.map((v) => {
                   const color = v.severity === "critical" ? "#ef4444" : v.severity === "medium" ? "#f59e0b" : "#a855f7";
                   const dashPattern = v.severity === "critical" ? [6, 4] : [10, 5];
 
@@ -1152,7 +1167,7 @@ const recColor = rec.color || colorMap[rec.type] || "text-slate-400 bg-slate-900
                         setSelectedNodeId(node.id);
                       }}
                     >
-                      {visuals.coverage && (
+                      {visuals.coverage && COVERAGE_DEVICE_TYPES.includes(node.type) && (
                         <Circle
                           radius={node.range}
                           fill={devMeta.color}
