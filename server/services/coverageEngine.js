@@ -78,7 +78,7 @@ const calculateCoverage = (
             );
 
             if (blocked) {
-              signal *= wall.attenuation || 0.25;
+              signal *= Number(wall.attenuation ?? 0.08);
             }
           });
 
@@ -94,7 +94,7 @@ const calculateCoverage = (
           ? Math.min((channelsPresent.length - uniqueChannels.size) * 0.4, 1)
           : 0;
 
-      const MIN_USABLE_SIGNAL = 6;
+      
       const isCovered = highestSignal >= MIN_USABLE_SIGNAL;
 
       if (isCovered) coveredCellsCount++;

@@ -52,12 +52,13 @@ export default function AirGridPlannerCanvas() {
   const [nodes, setNodes] = useState(INITIAL_NODES);
   const [walls, setWalls] = useState([]);
   const [selectedNodeId, setSelectedNodeId] = useState(null);
+  const [selectedWallId, setSelectedWallId] = useState(null);
   const [recommendations, setRecommendations] = useState([]);
   const [showRecommendations, setShowRecommendations] = useState(false);
   const [backendAnalysis, setBackendAnalysis] = useState(null);
   const [isAnalyzing, setIsAnalyzing] = useState(false);
   const [apiError, setApiError] = useState("");
-  const [projectName, setProjectName] = useState("");
+  
   const [savedProjects, setSavedProjects] = useState([]);
   const [showProjectPicker, setShowProjectPicker] = useState(false);
   const [isCanvasExpanded, setIsCanvasExpanded] = useState(false);
@@ -75,6 +76,11 @@ export default function AirGridPlannerCanvas() {
   });
 
   const selectedNode = useMemo(() => nodes.find(n => n.id === selectedNodeId), [nodes, selectedNodeId]);
+
+  const selectedWall = useMemo(
+  () => walls.find((w) => w.id === selectedWallId),
+  [walls, selectedWallId]
+);
 
   // Handle Drag & Drop registration from sidebar
   const handleDragStartFromSidebar = (e, deviceType) => {
@@ -244,6 +250,7 @@ const handleNodeDragMove = (id, e) => {
 
   const handleWallDragMove = (id, e) => {
   e.cancelBubble = true;
+  setBackendAnalysis(null);
 
   const pos = e.target.position();
 
@@ -275,7 +282,10 @@ const getConnectedWifiNode = (iotNode) => {
     const dy = iotNode.y - wifi.y;
     const distance = Math.sqrt(dx * dx + dy * dy);
 
-    if (distance <= wifi.range * 0.85 && distance < nearestDistance) {
+    const rawSignal = Math.max(0, (1 - distance / wifi.range) * wifi.power);
+    const signal = applyWallAttenuation(rawSignal, wifi.x, wifi.y, iotNode.x, iotNode.y);
+
+    if (distance <= wifi.range * 0.85 && signal > 6 && distance < nearestDistance) {
       nearest = wifi;
       nearestDistance = distance;
     }
@@ -289,10 +299,25 @@ const getConnectedWifiNode = (iotNode) => {
     setNodes(nodes.map(node => node.id === selectedNodeId ? { ...node, [key]: value } : node));
   };
 
+  const updateSelectedWallProperty = (key, value) => {
+  if (!selectedWallId) return;
+
+  setWalls((prev) =>
+    prev.map((wall) =>
+      wall.id === selectedWallId
+        ? { ...wall, [key]: value }
+        : wall
+    )
+  );
+
+  setBackendAnalysis(null);
+};
+
   const resetCanvas = () => {
   setNodes([]);
   setWalls([]);
   setSelectedNodeId(null);
+  setSelectedWallId(null);
 
   setRecommendations([]);
   setShowRecommendations(false);
@@ -311,6 +336,46 @@ const getConnectedWifiNode = (iotNode) => {
   // ==========================================
   // CORE ENGINE ALGORITHMS
   // ==========================================
+
+
+  const lineIntersectsRect = (x1, y1, x2, y2, rect) => {
+  const left = rect.x;
+  const right = rect.x + rect.width;
+  const top = rect.y;
+  const bottom = rect.y + rect.height;
+
+  const pointInside =
+    (x1 >= left && x1 <= right && y1 >= top && y1 <= bottom) ||
+    (x2 >= left && x2 <= right && y2 >= top && y2 <= bottom);
+
+  if (pointInside) return true;
+
+  const ccw = (ax, ay, bx, by, cx, cy) =>
+    (cy - ay) * (bx - ax) > (by - ay) * (cx - ax);
+
+  const intersects = (ax, ay, bx, by, cx, cy, dx, dy) =>
+    ccw(ax, ay, cx, cy, dx, dy) !== ccw(bx, by, cx, cy, dx, dy) &&
+    ccw(ax, ay, bx, by, cx, cy) !== ccw(ax, ay, bx, by, dx, dy);
+
+  return (
+    intersects(x1, y1, x2, y2, left, top, right, top) ||
+    intersects(x1, y1, x2, y2, right, top, right, bottom) ||
+    intersects(x1, y1, x2, y2, right, bottom, left, bottom) ||
+    intersects(x1, y1, x2, y2, left, bottom, left, top)
+  );
+};
+
+const applyWallAttenuation = (signal, x1, y1, x2, y2) => {
+  let reducedSignal = signal;
+
+  walls.forEach((wall) => {
+    if (lineIntersectsRect(x1, y1, x2, y2, wall)) {
+      reducedSignal *= 1 - wall.attenuation;
+    }
+  });
+
+  return reducedSignal;
+};
 
   // 1. Coverage & Heatmap Matrix Grid Calculations
   const gridAnalysis = useMemo(() => {
@@ -341,7 +406,15 @@ const getConnectedWifiNode = (iotNode) => {
 
           if (distance <= node.range) {
             // Logarithmic signal loss simulation scaled up for visual aesthetic
-            const signal = Math.max(0, (1 - distance / node.range) * node.power);
+            const rawSignal = Math.max(0, (1 - distance / node.range) * node.power);
+
+const signal = applyWallAttenuation(
+  rawSignal,
+  node.x,
+  node.y,
+  cellX,
+  cellY
+);
             if (signal > highestSignal) highestSignal = signal;
             
             channelsPresent.push(node.channel);
@@ -373,7 +446,7 @@ const getConnectedWifiNode = (iotNode) => {
     const deadZonePercent = totalCells > 0 ? Math.round((deadCellsCount / totalCells) * 100) : 0;
 
     return { cells, coveragePercent, deadZonePercent };
-  }, [nodes]);
+  }, [nodes, walls, CANVAS_WIDTH, CANVAS_HEIGHT]);
 
   // 2. Inter-Node Interference Vector Detection
   const interferenceVectors = useMemo(() => {
@@ -407,7 +480,7 @@ const getConnectedWifiNode = (iotNode) => {
       }
     }
     return vectors;
-  }, [nodes]);
+  }, [nodes, walls, CANVAS_WIDTH, CANVAS_HEIGHT]);
 
   
   // 3. Score Evaluator Matrix
@@ -734,6 +807,7 @@ const renderInterferenceVectors =
               onClick={(e) => {
                 if (e.target === e.target.getStage()) {
                   setSelectedNodeId(null);
+                  setSelectedWallId(null);
                 }
               }}
             >
@@ -809,30 +883,6 @@ const renderInterferenceVectors =
                   );
                 })}
 
-  {walls.map((wall) => (
-  <Rect
-    key={wall.id}
-    x={wall.x}
-    y={wall.y}
-    width={wall.width}
-    height={wall.height}
-    fill="#7c2d12"
-    opacity={0.75}
-    stroke="#fb923c"
-    strokeWidth={1}
-    draggable
-    listening={true}
-    onMouseDown={(e) => {
-      e.cancelBubble = true;
-      setSelectedNodeId(node.id);
-    }}
-    onDragStart={(e) => {
-      e.cancelBubble = true;
-    }}
-    onDragMove={(e) => handleWallDragMove(wall.id, e)}
-    onDragEnd={(e) => handleWallDragMove(wall.id, e)}
-  />
-))}
 
 {nodes
   .filter((node) => node.type === "IoT Node")
@@ -868,6 +918,7 @@ const renderInterferenceVectors =
                       onMouseDown={(e) => {
   e.cancelBubble = true;
   setSelectedNodeId(node.id);
+  setSelectedWallId(null);
 }}
 onDragStart={(e) => {
   e.cancelBubble = true;
@@ -891,13 +942,14 @@ onTap={(e) => {
                       {/* Range / Boundary Signal Ring */}
                       {visuals.coverage && (
                         <Circle 
-                          radius={node.range}
-                          fill={devMeta.color}
-                          opacity={isSelected ? 0.08 : 0.03}
-                          stroke={devMeta.color}
-                          strokeWidth={isSelected ? 1.5 : 0.8}
-                          dash={isSelected ? [5, 3] : null}
-                        />
+  radius={node.range}
+  fill={devMeta.color}
+  opacity={isSelected ? 0.08 : 0.03}
+  stroke={devMeta.color}
+  strokeWidth={isSelected ? 1.5 : 0.8}
+  dash={isSelected ? [5, 3] : null}
+  listening={false}
+/>
                       )}
 
                       {/* Main Node Base Core Anchor */}
@@ -954,6 +1006,60 @@ onTap={(e) => {
                     </Group>
                   );
                 })}
+     {walls.map((wall) => {
+  const isSelected = wall.id === selectedWallId;
+
+  return (
+    <Group
+      key={wall.id}
+      x={wall.x}
+      y={wall.y}
+      draggable
+      onMouseDown={(e) => {
+        e.cancelBubble = true;
+        setSelectedWallId(wall.id);
+        setSelectedNodeId(null);
+      }}
+      onClick={(e) => {
+        e.cancelBubble = true;
+        setSelectedWallId(wall.id);
+        setSelectedNodeId(null);
+      }}
+      onTap={(e) => {
+        e.cancelBubble = true;
+        setSelectedWallId(wall.id);
+        setSelectedNodeId(null);
+      }}
+      onDragMove={(e) => handleWallDragMove(wall.id, e)}
+      onDragEnd={(e) => handleWallDragMove(wall.id, e)}
+    >
+      <Rect
+        x={0}
+        y={0}
+        width={wall.width}
+        height={wall.height}
+        fill="#7c2d12"
+        opacity={0.9}
+        stroke={isSelected ? "#facc15" : "#fb923c"}
+        strokeWidth={isSelected ? 3 : 1}
+        listening={true}
+      />
+
+      <Text
+        text={wall.name}
+        x={0}
+        y={-16}
+        width={wall.width}
+        align="center"
+        fill={isSelected ? "#facc15" : "#fb923c"}
+        fontSize={10}
+        fontFamily="monospace"
+        fontStyle="bold"
+        listening={false}
+      />
+    </Group>
+  );
+})}
               </Layer>
             </Stage>
 
@@ -1104,6 +1210,7 @@ const recColor = rec.color || colorMap[rec.type] || "text-slate-400 bg-slate-900
                     onClick={() => {
                       setNodes(nodes.filter(n => n.id !== selectedNodeId));
                       setSelectedNodeId(null);
+                      setSelectedWallId(null);
                     }}
                     className="w-full py-2 bg-red-950/20 hover:bg-red-900/30 text-red-400 border border-red-900/60 rounded text-xs font-mono transition-colors"
                   >
@@ -1111,7 +1218,130 @@ const recColor = rec.color || colorMap[rec.type] || "text-slate-400 bg-slate-900
                   </button>
                 </div>
               </motion.div>
-            ) : (
+            ) : selectedWall ? (
+              <motion.div
+  key="wall-inspector"
+  initial={{ opacity: 0, x: 10 }}
+  animate={{ opacity: 1, x: 0 }}
+  exit={{ opacity: 0, x: 10 }}
+  className="space-y-5 h-full flex flex-col"
+>
+  <div>
+    <div className="text-[10px] font-mono text-orange-400 uppercase tracking-widest font-bold">
+      Structural Obstacle Inspected
+    </div>
+
+    <h2 className="text-base font-bold text-slate-100 font-mono mt-0.5 tracking-tight flex items-center justify-between">
+      <span>{selectedWall.name}</span>
+      <span className="text-xs font-normal text-orange-400 bg-slate-950 px-2 py-0.5 rounded border border-orange-900/60">
+        WALL
+      </span>
+    </h2>
+  </div>
+
+  <div className="bg-slate-950 p-3 rounded border border-slate-800/60 font-mono space-y-1 text-xs">
+    <div className="flex justify-between text-[11px]">
+      <span className="text-slate-500">WALL ID:</span>
+      <span className="text-slate-300">{selectedWall.id}</span>
+    </div>
+
+    <div className="flex justify-between text-[11px]">
+      <span className="text-slate-500">POSITION:</span>
+      <span className="text-slate-300">
+        X: {Math.round(selectedWall.x)}px | Y: {Math.round(selectedWall.y)}px
+      </span>
+    </div>
+  </div>
+
+  <div className="space-y-4 pt-2 border-t border-slate-800/60 flex-1">
+    <h3 className="text-xs font-semibold uppercase tracking-wider text-slate-400 font-mono flex items-center gap-1.5">
+      <Sliders className="w-3 h-3 text-orange-400" />
+      Wall Material Editor
+    </h3>
+
+    <div className="space-y-1.5">
+      <label className="block font-mono text-[11px] text-slate-400">
+        Wall Name:
+      </label>
+      <input
+        type="text"
+        value={selectedWall.name}
+        onChange={(e) => updateSelectedWallProperty("name", e.target.value)}
+        className="w-full bg-slate-950 border border-slate-800 rounded p-2 text-xs font-mono text-slate-300 focus:border-orange-500 focus:ring-0"
+      />
+    </div>
+
+    <div className="space-y-1.5">
+      <div className="flex justify-between font-mono text-[11px]">
+        <span className="text-slate-400">Width:</span>
+        <span className="text-orange-400 font-bold">{selectedWall.width}px</span>
+      </div>
+      <input
+        type="range"
+        min="40"
+        max="400"
+        value={selectedWall.width}
+        onChange={(e) =>
+          updateSelectedWallProperty("width", parseInt(e.target.value))
+        }
+        className="w-full h-1 bg-slate-950 rounded-lg appearance-none cursor-pointer accent-orange-500"
+      />
+    </div>
+
+    <div className="space-y-1.5">
+      <div className="flex justify-between font-mono text-[11px]">
+        <span className="text-slate-400">Height:</span>
+        <span className="text-orange-400 font-bold">{selectedWall.height}px</span>
+      </div>
+      <input
+        type="range"
+        min="20"
+        max="250"
+        value={selectedWall.height}
+        onChange={(e) =>
+          updateSelectedWallProperty("height", parseInt(e.target.value))
+        }
+        className="w-full h-1 bg-slate-950 rounded-lg appearance-none cursor-pointer accent-orange-500"
+      />
+    </div>
+
+    <div className="space-y-1.5">
+      <div className="flex justify-between font-mono text-[11px]">
+        <span className="text-slate-400">Penetration Loss:</span>
+        <span className="text-red-400 font-bold">
+          {Math.round(selectedWall.attenuation * 100)}%
+        </span>
+      </div>
+      <input
+        type="range"
+        min="0"
+        max="100"
+        value={Math.round(selectedWall.attenuation * 100)}
+        onChange={(e) =>
+          updateSelectedWallProperty(
+            "attenuation",
+            parseInt(e.target.value) / 100
+          )
+        }
+        className="w-full h-1 bg-slate-950 rounded-lg appearance-none cursor-pointer accent-red-500"
+      />
+    </div>
+  </div>
+
+  <div className="pt-4 border-t border-slate-800">
+    <button
+      onClick={() => {
+        setWalls(walls.filter((w) => w.id !== selectedWallId));
+        setSelectedWallId(null);
+        setBackendAnalysis(null);
+      }}
+      className="w-full py-2 bg-red-950/20 hover:bg-red-900/30 text-red-400 border border-red-900/60 rounded text-xs font-mono transition-colors"
+    >
+      REMOVE WALL
+    </button>
+  </div>
+</motion.div>
+) : (
               // Empty System Overview Frame Profile
               <motion.div 
                 key="summary-inspector"
@@ -1242,6 +1472,7 @@ const recColor = rec.color || colorMap[rec.type] || "text-slate-400 bg-slate-900
               onClick={(e) => {
                 if (e.target === e.target.getStage()) {
                   setSelectedNodeId(null);
+                  setSelectedWallId(null);
                 }
               }}
             >
@@ -1309,29 +1540,27 @@ const recColor = rec.color || colorMap[rec.type] || "text-slate-400 bg-slate-900
                     </Group>
                   );
                 })}
-{walls.map((wall) => (
-  <Rect
-    key={`expanded-${wall.id}`}
-    x={wall.x}
-    y={wall.y}
-    width={wall.width}
-    height={wall.height}
-    fill="#7c2d12"
-    opacity={0.75}
-    stroke="#fb923c"
-    strokeWidth={1}
-    draggable
-    listening={true}
-    onMouseDown={(e) => {
-      e.cancelBubble = true;
-    }}
-    onDragStart={(e) => {
-      e.cancelBubble = true;
-    }}
-    onDragMove={(e) => handleWallDragMove(wall.id, e)}
-    onDragEnd={(e) => handleWallDragMove(wall.id, e)}
-  />
-))}
+
+{nodes
+  .filter((node) => node.type === "IoT Node")
+  .map((iot) => {
+    const wifi = getConnectedWifiNode(iot);
+
+    if (!wifi) return null;
+
+    return (
+      <Line
+        key={`expanded-iot-link-${iot.id}`}
+        points={[iot.x, iot.y, wifi.x, wifi.y]}
+        stroke="#10b981"
+        strokeWidth={1.5}
+        dash={[6, 4]}
+        opacity={0.85}
+        listening={false}
+      />
+    );
+  })}
+
                 {nodes.map((node) => {
                   const isSelected = node.id === selectedNodeId;
                   const devMeta = Object.values(DEVICE_TYPES).find((d) => d.type === node.type) || DEVICE_TYPES.WIFI_AP;
@@ -1344,6 +1573,8 @@ const recColor = rec.color || colorMap[rec.type] || "text-slate-400 bg-slate-900
                       draggable
                       onMouseDown={(e) => {
   e.cancelBubble = true;
+  setSelectedNodeId(node.id);
+  setSelectedWallId(null);
 }}
 onDragStart={(e) => {
   e.cancelBubble = true;
@@ -1366,14 +1597,15 @@ onTap={(e) => {
   />
                       
                       {visuals.coverage && (
-                        <Circle
-                          radius={node.range}
-                          fill={devMeta.color}
-                          opacity={isSelected ? 0.08 : 0.03}
-                          stroke={devMeta.color}
-                          strokeWidth={isSelected ? 1.5 : 0.8}
-                          dash={isSelected ? [5, 3] : null}
-                        />
+                     <Circle 
+  radius={node.range}
+  fill={devMeta.color}
+  opacity={isSelected ? 0.08 : 0.03}
+  stroke={devMeta.color}
+  strokeWidth={isSelected ? 1.5 : 0.8}
+  dash={isSelected ? [5, 3] : null}
+  listening={false}
+/>
                       )}
 
                       <Circle
@@ -1426,6 +1658,62 @@ onTap={(e) => {
                     </Group>
                   );
                 })}
+
+{walls.map((wall) => {
+  const isSelected = wall.id === selectedWallId;
+
+  return (
+    <Group
+      key={`expanded-${wall.id}`}
+      x={wall.x}
+      y={wall.y}
+      draggable
+      onMouseDown={(e) => {
+        e.cancelBubble = true;
+        setSelectedWallId(wall.id);
+        setSelectedNodeId(null);
+      }}
+      onClick={(e) => {
+        e.cancelBubble = true;
+        setSelectedWallId(wall.id);
+        setSelectedNodeId(null);
+      }}
+      onTap={(e) => {
+        e.cancelBubble = true;
+        setSelectedWallId(wall.id);
+        setSelectedNodeId(null);
+      }}
+      onDragMove={(e) => handleWallDragMove(wall.id, e)}
+      onDragEnd={(e) => handleWallDragMove(wall.id, e)}
+    >
+      <Rect
+        x={0}
+        y={0}
+        width={wall.width}
+        height={wall.height}
+        fill="#7c2d12"
+        opacity={0.9}
+        stroke={isSelected ? "#facc15" : "#fb923c"}
+        strokeWidth={isSelected ? 3 : 1}
+        listening={true}
+      />
+
+      <Text
+        text={wall.name}
+        x={0}
+        y={-16}
+        width={wall.width}
+        align="center"
+        fill={isSelected ? "#facc15" : "#fb923c"}
+        fontSize={10}
+        fontFamily="monospace"
+        fontStyle="bold"
+        listening={false}
+      />
+    </Group>
+  );
+})}
+
               </Layer>
             </Stage>
           </div>
